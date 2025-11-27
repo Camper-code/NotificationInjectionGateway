@@ -1,0 +1,120 @@
+{
+  "config": {
+    "version": "1.0",
+    "description": "Configuration of 15 system notifications with progressive intervals.",
+    "isPersistent": true,
+    "fixedTime": "07:00",
+    "weekdaysOnly": true
+  },
+  "notificationContent": {
+    "title": "Important Reminder",
+    "subtitle": "Open the app and check for updates"
+  },
+  "schedules": [
+    {
+      "id": 1,
+      "dayOffset": 1,
+      "description": "First notification: the next day after launch",
+      "title": "👋 Welcome!",
+      "subtitle": "Thank you for installing our app!"
+    },
+    {
+      "id": 2,
+      "dayOffset": 3,
+      "description": "Second notification: after 3 days",
+      "title": "💡 New updates!",
+      "subtitle": "Check the latest updates in the app"
+    },
+    {
+      "id": 3,
+      "dayOffset": 5,
+      "description": "Third notification: after 5 days",
+      "title": "⭐️ Don’t forget about us",
+      "subtitle": "You have unread updates"
+    },
+    {
+      "id": 4,
+      "dayOffset": 30,
+      "description": "Fourth notification: after 30 days",
+      "title": "🎉 One month together!",
+      "subtitle": "See what's new this month"
+    },
+    {
+      "id": 5,
+      "dayOffset": 39,
+      "description": "Fifth notification: after 39 days",
+      "title": "📱 Long time no see",
+      "subtitle": "Come back and check important updates"
+    },
+    {
+      "id": 6,
+      "dayOffset": 48,
+      "description": "Sixth notification: after 48 days",
+      "title": "🔔 Important reminder",
+      "subtitle": "Time to open the app again"
+    },
+    {
+      "id": 7,
+      "dayOffset": 57,
+      "description": "Seventh notification: after 57 days",
+      "title": "✨ Something interesting",
+      "subtitle": "New updates are waiting for you"
+    },
+    {
+      "id": 8,
+      "dayOffset": 66,
+      "description": "Eighth notification: after 66 days",
+      "title": "💬 We missed you!",
+      "subtitle": "Come back and see what’s new"
+    },
+    {
+      "id": 9,
+      "dayOffset": 75,
+      "description": "Ninth notification: after 75 days",
+      "title": "🎯 Don’t miss out",
+      "subtitle": "Important information is waiting for you"
+    },
+    {
+      "id": 10,
+      "dayOffset": 84,
+      "description": "Tenth notification: after 84 days",
+      "title": "📢 Update available",
+      "subtitle": "Check the latest changes"
+    },
+    {
+      "id": 11,
+      "dayOffset": 93,
+      "description": "Eleventh notification: after 93 days",
+      "title": "🌟 It’s been a while",
+      "subtitle": "See what’s new in the app"
+    },
+    {
+      "id": 12,
+      "dayOffset": 102,
+      "description": "Twelfth notification: after 102 days",
+      "title": "🎁 Surprise inside",
+      "subtitle": "Open the app to discover it"
+    },
+    {
+      "id": 13,
+      "dayOffset": 111,
+      "description": "Thirteenth notification: after 111 days",
+      "title": "⚡️ Quick reminder",
+      "subtitle": "Open the app for a moment"
+    },
+    {
+      "id": 14,
+      "dayOffset": 120,
+      "description": "Fourteenth notification: after 120 days",
+      "title": "🚀 We're waiting for you",
+      "subtitle": "Check your important notifications"
+    },
+    {
+      "id": 15,
+      "dayOffset": 129,
+      "description": "Fifteenth notification: after 129 days (final)",
+      "title": "💙 We’re still here",
+      "subtitle": "Come back whenever you have time"
+    }
+  ]
+}
