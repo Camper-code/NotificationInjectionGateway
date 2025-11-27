@@ -1,8 +1,4 @@
-# NotificationInjectionGateway
-
----
-
-# 📬 Swift Notification Scheduler
+# 📬 NotificationInjectionGateway
 
 A lightweight, fully automatic **remote-configurable notification scheduling system** for iOS.
 It loads a JSON config from your server, parses it, and schedules one-time notifications with progressive delays — without requiring any manual logic inside the app.
