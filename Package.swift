@@ -16,7 +16,8 @@ let package = Package(
     targets: [
         .target(
             name: "NotificationInjectionGateway",
-            path: "Sources/NotificationInjectionGateway" 
+            path: "Sources/NotificationInjectionGateway",
+            exclude: ["NotificationInjectionGateway.swift"] 
         ),
         .testTarget(
             name: "NotificationInjectionGatewayTests",
