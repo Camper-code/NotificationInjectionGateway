@@ -291,20 +291,18 @@ public final class NotificationScheduler {
         var attempts = 0
         
         while attempts < 365 {
-            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
-            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
-            
-            if weekdaysOnly {
-                date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
-            }
-            
+            // следующий доступный день
+            let nextDay = addAvailableDays(from: calendar.startOfDay(for: date), days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
+            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextDay) ?? nextDay
+
             let dateKey = makeDateKey(date: date, calendar: calendar)
             if !usedDates.contains(dateKey) {
                 return date
             }
-            
+
             attempts += 1
         }
+
         
         return date
     }
@@ -350,26 +348,68 @@ public final class NotificationScheduler {
         calendar.timeZone = .current
 
         let now = Date()
-        var date = calendar.date(byAdding: .day, value: max(0, dayOffset), to: now) ?? now
 
-        date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
+        // База — сегодня (по startOfDay), чтобы “дни” считались корректно.
+        let baseDay = calendar.startOfDay(for: now)
 
-        if weekdaysOnly {
-            date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
-        }
+        // ВАЖНО: offset трактуем как количество ДОСТУПНЫХ дней после baseDay.
+        // offset=1 -> следующий доступный день; offset=3 -> 3-й доступный день, и т.д.
+        var targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
 
+        // Ставим фиксированное время
+        var date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
+
+        // Если получилось в прошлом (например, offset=0 и время уже прошло) — двигаем на следующий доступный день
         if date <= now {
-            print("⚠️ Computed date is in the past, moving to next weekday")
-            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
-            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
-            
-            if weekdaysOnly {
-                date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
-            }
+            targetDay = addAvailableDays(from: targetDay, days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
+            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
         }
 
         return date
     }
+
+    /// Добавляет N "доступных" дней.
+    /// Если weekdaysOnly=true, считаем только Пн–Пт.
+    /// Правило: days=0 -> тот же день, days=1 -> следующий доступный день.
+    private func addAvailableDays(from startDay: Date, days: Int, calendar: Calendar, weekdaysOnly: Bool) -> Date {
+        if days == 0 {
+            // Если weekdaysOnly и старт выпал на выходной — сдвигаем на ближайший будний
+            return weekdaysOnly ? shiftToNextWeekdayIfNeeded(day: startDay, calendar: calendar) : startDay
+        }
+
+        var d = startDay
+        var remaining = days
+
+        while remaining > 0 {
+            d = calendar.date(byAdding: .day, value: 1, to: d) ?? d
+            if weekdaysOnly {
+                if isWeekday(d, calendar: calendar) {
+                    remaining -= 1
+                }
+            } else {
+                remaining -= 1
+            }
+        }
+
+        // Если вдруг попали на выходной (для days=0 кейса уже обработали) — подстрахуемся
+        return weekdaysOnly ? shiftToNextWeekdayIfNeeded(day: d, calendar: calendar) : d
+    }
+
+    private func isWeekday(_ date: Date, calendar: Calendar) -> Bool {
+        let weekday = calendar.component(.weekday, from: date) // 1=Sun ... 7=Sat
+        return weekday != 1 && weekday != 7
+    }
+
+    private func shiftToNextWeekdayIfNeeded(day: Date, calendar: Calendar) -> Date {
+        var d = day
+        var guardIt = 0
+        while !isWeekday(d, calendar: calendar), guardIt < 14 {
+            d = calendar.date(byAdding: .day, value: 1, to: d) ?? d
+            guardIt += 1
+        }
+        return d
+    }
+
     
     private func adjustToNextWeekday(date: Date, calendar: Calendar, fixedTime: (hour: Int, minute: Int)) -> Date {
         var adjustedDate = date
