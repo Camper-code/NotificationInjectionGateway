@@ -98,6 +98,7 @@ public final class NotificationConfigManager {
             do {
                 let decoder = JSONDecoder()
                 let config = try decoder.decode(NotificationConfig.self, from: data)
+                print("✅ Config decoded successfully, version: \(config.config.version)")
                 completion(config)
             } catch let DecodingError.keyNotFound(key, context) {
                 print("❌ Key not found: \(key.stringValue)")
@@ -131,14 +132,15 @@ public final class NotificationScheduler {
     private let udLastAppliedVersionKey = "NIG_lastAppliedConfigVersion"
 
     public init(endpoint: String, userDefaults: UserDefaults = .standard) {
+        print("🎯 NotificationScheduler init with endpoint: \(endpoint)")
         self.configManager = NotificationConfigManager(endpoint: endpoint)
         self.userDefaults = userDefaults
     }
 
     public func scheduleAppNotifications(force: Bool = false) {
-        requestPermissionIfNeeded { [weak self] granted in
-            guard let self else { return }
-
+        print("🚀 scheduleAppNotifications called, force: \(force)")
+        requestPermissionIfNeeded { granted in
+            print("🔐 Permission result: \(granted)")
             guard granted else {
                 print("⚠️ Notifications not granted")
                 return
@@ -149,41 +151,57 @@ public final class NotificationScheduler {
     }
 
     private func requestPermissionIfNeeded(completion: @escaping (Bool) -> Void) {
+        print("🔍 Checking notification permission...")
         center.getNotificationSettings { settings in
+            print("📋 Current authorization status: \(settings.authorizationStatus.rawValue)")
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 completion(true)
 
             case .notDetermined:
+                print("❓ Permission not determined, requesting...")
                 self.center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
-                    if let err { print("❌ requestAuthorization error: \(err.localizedDescription)") }
+                    if let err {
+                        print("❌ requestAuthorization error: \(err.localizedDescription)")
+                    }
+                    print("✅ Permission granted: \(granted)")
                     completion(granted)
                 }
 
             case .denied:
+                print("🚫 Permission denied by user")
                 completion(false)
 
             @unknown default:
+                print("⚠️ Unknown permission status")
                 completion(false)
             }
         }
     }
 
     private func processScheduling(force: Bool) {
-        center.getPendingNotificationRequests { [weak self] existingRequests in
-            guard let self else { return }
-
+        print("⚙️ Processing scheduling, force: \(force)")
+        center.getPendingNotificationRequests { existingRequests in
             let existingIds = Set(existingRequests.map(\.identifier))
             print("📦 Pending notifications: \(existingIds.count)")
+            if !existingIds.isEmpty {
+                print("   Existing IDs: \(existingIds.sorted())")
+            }
 
-            self.configManager.getNotificationConfig { [weak self] config in
-                guard let self else { return }
-                guard let config else {
+            print("📡 Fetching config from server...")
+            self.configManager.getNotificationConfig { config in
+                guard let config = config else {
                     print("❌ Config is nil")
                     return
                 }
 
+                print("✅ Config received, version: \(config.config.version)")
+                print("   isPersistent: \(config.config.isPersistent)")
+                print("   schedules count: \(config.schedules.count)")
+
                 let lastAppliedVersion = self.userDefaults.string(forKey: self.udLastAppliedVersionKey)
+                print("💾 Last applied version: \(lastAppliedVersion ?? "none")")
+                
                 let shouldSkipBecausePersistent =
                     config.config.isPersistent && !force && (lastAppliedVersion == config.config.version) && !existingIds.isEmpty
 
@@ -192,6 +210,7 @@ public final class NotificationScheduler {
                     return
                 }
 
+                print("🔄 Applying config...")
                 self.applyConfig(config, existingIds: existingIds)
             }
         }
@@ -200,11 +219,18 @@ public final class NotificationScheduler {
     private func applyConfig(_ config: NotificationConfig, existingIds: Set<String>) {
         print("✅ Applying config v\(config.config.version)")
         let fixed = parseFixedTime(config.config.fixedTime)
+        print("⏰ Fixed time: \(fixed.hour):\(fixed.minute)")
+        print("📅 Weekdays only: \(config.config.weekdaysOnly)")
+
+        var scheduledCount = 0
+        var skippedCount = 0
 
         for schedule in config.schedules {
             let identifier = makeIdentifier(configVersion: config.config.version, scheduleId: schedule.id)
 
             if existingIds.contains(identifier) {
+                print("⏭️ Skipping \(identifier) - already exists")
+                skippedCount += 1
                 continue
             }
 
@@ -223,9 +249,12 @@ public final class NotificationScheduler {
                 subtitle: subtitle,
                 fireDate: targetDate
             )
+            scheduledCount += 1
         }
 
+        print("📊 Scheduling complete: \(scheduledCount) scheduled, \(skippedCount) skipped")
         self.userDefaults.setValue(config.config.version, forKey: self.udLastAppliedVersionKey)
+        print("💾 Saved version to UserDefaults: \(config.config.version)")
     }
 
     private func scheduleNotification(identifier: String, title: String, subtitle: String, fireDate: Date) {
@@ -244,7 +273,11 @@ public final class NotificationScheduler {
             if let err {
                 print("❌ Failed to schedule \(identifier): \(err.localizedDescription)")
             } else {
-                print("✅ Scheduled \(identifier) at \(fireDate)")
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                print("✅ Scheduled \(identifier)")
+                print("   Title: '\(title)'")
+                print("   Fire date: \(formatter.string(from: fireDate))")
             }
         }
     }
@@ -254,7 +287,6 @@ public final class NotificationScheduler {
     }
 
     private func parseFixedTime(_ fixedTime: String) -> (hour: Int, minute: Int) {
-        
         let parts = fixedTime.split(separator: ":").map(String.init)
         let hour = Int(parts.first ?? "") ?? 9
         let minute = Int(parts.dropFirst().first ?? "") ?? 0
@@ -268,24 +300,25 @@ public final class NotificationScheduler {
         let now = Date()
         var date = calendar.date(byAdding: .day, value: max(0, dayOffset), to: now) ?? now
 
-        
         date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
 
         if weekdaysOnly {
             // 1 = Sunday, 7 = Saturday
-            while true {
+            var iterations = 0
+            while iterations < 7 {
                 let weekday = calendar.component(.weekday, from: date)
                 if weekday == 1 || weekday == 7 {
                     date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
                     date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
+                    iterations += 1
                     continue
                 }
                 break
             }
         }
 
-  
         if date <= now {
+            print("⚠️ Computed date is in the past, moving to next day")
             date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
             date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
         }
@@ -297,10 +330,13 @@ public final class NotificationScheduler {
 // MARK: - SwiftUI View Extension (public)
 
 public extension View {
-
     func notificationManager(url: String, force: Bool = false) -> some View {
         self.onAppear {
-            NotificationScheduler(endpoint: url).scheduleAppNotifications(force: force)
+            print("🔔 NotificationManager modifier triggered")
+            print("   URL: \(url)")
+            print("   Force: \(force)")
+            let scheduler = NotificationScheduler(endpoint: url)
+            scheduler.scheduleAppNotifications(force: force)
         }
     }
 }
