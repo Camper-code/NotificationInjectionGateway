@@ -224,6 +224,7 @@ public final class NotificationScheduler {
 
         var scheduledCount = 0
         var skippedCount = 0
+        var usedDates = Set<String>() // Отслеживаем занятые даты
 
         for schedule in config.schedules {
             let identifier = makeIdentifier(configVersion: config.config.version, scheduleId: schedule.id)
@@ -237,11 +238,28 @@ public final class NotificationScheduler {
             let title = schedule.title ?? config.notificationContent.title
             let subtitle = schedule.subtitle ?? config.notificationContent.subtitle
 
-            let targetDate = computeFireDate(
+            var targetDate = computeFireDate(
                 dayOffset: schedule.dayOffset,
                 fixedTime: fixed,
                 weekdaysOnly: config.config.weekdaysOnly
             )
+            
+            // Проверяем конфликты дат
+            let calendar = Calendar.current
+            let dateKey = makeDateKey(date: targetDate, calendar: calendar)
+            
+            if usedDates.contains(dateKey) {
+                print("⚠️ Date conflict detected for \(dateKey), moving to next available day")
+                targetDate = findNextAvailableDate(
+                    startDate: targetDate,
+                    usedDates: &usedDates,
+                    calendar: calendar,
+                    fixedTime: fixed,
+                    weekdaysOnly: config.config.weekdaysOnly
+                )
+            }
+            
+            usedDates.insert(makeDateKey(date: targetDate, calendar: calendar))
 
             scheduleNotification(
                 identifier: identifier,
@@ -255,6 +273,40 @@ public final class NotificationScheduler {
         print("📊 Scheduling complete: \(scheduledCount) scheduled, \(skippedCount) skipped")
         self.userDefaults.setValue(config.config.version, forKey: self.udLastAppliedVersionKey)
         print("💾 Saved version to UserDefaults: \(config.config.version)")
+    }
+    
+    private func makeDateKey(date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return "\(components.year!)-\(components.month!)-\(components.day!)"
+    }
+    
+    private func findNextAvailableDate(
+        startDate: Date,
+        usedDates: inout Set<String>,
+        calendar: Calendar,
+        fixedTime: (hour: Int, minute: Int),
+        weekdaysOnly: Bool
+    ) -> Date {
+        var date = startDate
+        var attempts = 0
+        
+        while attempts < 365 {
+            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
+            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
+            
+            if weekdaysOnly {
+                date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
+            }
+            
+            let dateKey = makeDateKey(date: date, calendar: calendar)
+            if !usedDates.contains(dateKey) {
+                return date
+            }
+            
+            attempts += 1
+        }
+        
+        return date
     }
 
     private func scheduleNotification(identifier: String, title: String, subtitle: String, fireDate: Date) {
@@ -303,27 +355,39 @@ public final class NotificationScheduler {
         date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
 
         if weekdaysOnly {
-            // 1 = Sunday, 7 = Saturday
-            var iterations = 0
-            while iterations < 7 {
-                let weekday = calendar.component(.weekday, from: date)
-                if weekday == 1 || weekday == 7 {
-                    date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
-                    date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
-                    iterations += 1
-                    continue
-                }
-                break
-            }
+            date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
         }
 
         if date <= now {
-            print("⚠️ Computed date is in the past, moving to next day")
+            print("⚠️ Computed date is in the past, moving to next weekday")
             date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
             date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: date) ?? date
+            
+            if weekdaysOnly {
+                date = adjustToNextWeekday(date: date, calendar: calendar, fixedTime: fixedTime)
+            }
         }
 
         return date
+    }
+    
+    private func adjustToNextWeekday(date: Date, calendar: Calendar, fixedTime: (hour: Int, minute: Int)) -> Date {
+        var adjustedDate = date
+        var iterations = 0
+        
+        // 1 = Sunday, 7 = Saturday
+        while iterations < 7 {
+            let weekday = calendar.component(.weekday, from: adjustedDate)
+            if weekday == 1 || weekday == 7 {
+                adjustedDate = calendar.date(byAdding: .day, value: 1, to: adjustedDate) ?? adjustedDate
+                adjustedDate = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: adjustedDate) ?? adjustedDate
+                iterations += 1
+                continue
+            }
+            break
+        }
+        
+        return adjustedDate
     }
 }
 
