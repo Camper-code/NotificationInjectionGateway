@@ -5,7 +5,7 @@ let package = Package(
     name: "NotificationInjectionGateway",
     platforms: [
         .iOS(.v13),
-        .macOS(.v10_15) 
+        .macOS(.v10_15)
     ],
     products: [
         .library(
@@ -15,7 +15,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "NotificationInjectionGateway"
+            name: "NotificationInjectionGateway",
+            path: "Sources/NotificationInjectionGateway" 
         ),
         .testTarget(
             name: "NotificationInjectionGatewayTests",
