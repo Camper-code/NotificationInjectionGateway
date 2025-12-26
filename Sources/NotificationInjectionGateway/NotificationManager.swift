@@ -224,7 +224,7 @@ public final class NotificationScheduler {
 
         var scheduledCount = 0
         var skippedCount = 0
-        var usedDates = Set<String>() // Отслеживаем занятые даты
+        var usedDates = Set<String>() 
 
         for schedule in config.schedules {
             let identifier = makeIdentifier(configVersion: config.config.version, scheduleId: schedule.id)
@@ -244,7 +244,7 @@ public final class NotificationScheduler {
                 weekdaysOnly: config.config.weekdaysOnly
             )
             
-            // Проверяем конфликты дат
+      
             let calendar = Calendar.current
             let dateKey = makeDateKey(date: targetDate, calendar: calendar)
             
@@ -349,17 +349,15 @@ public final class NotificationScheduler {
 
         let now = Date()
 
-        // База — сегодня (по startOfDay), чтобы “дни” считались корректно.
+    
         let baseDay = calendar.startOfDay(for: now)
 
-        // ВАЖНО: offset трактуем как количество ДОСТУПНЫХ дней после baseDay.
-        // offset=1 -> следующий доступный день; offset=3 -> 3-й доступный день, и т.д.
+     
         var targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
 
-        // Ставим фиксированное время
+       
         var date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
 
-        // Если получилось в прошлом (например, offset=0 и время уже прошло) — двигаем на следующий доступный день
         if date <= now {
             targetDay = addAvailableDays(from: targetDay, days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
             date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
@@ -368,12 +366,10 @@ public final class NotificationScheduler {
         return date
     }
 
-    /// Добавляет N "доступных" дней.
-    /// Если weekdaysOnly=true, считаем только Пн–Пт.
-    /// Правило: days=0 -> тот же день, days=1 -> следующий доступный день.
+
     private func addAvailableDays(from startDay: Date, days: Int, calendar: Calendar, weekdaysOnly: Bool) -> Date {
         if days == 0 {
-            // Если weekdaysOnly и старт выпал на выходной — сдвигаем на ближайший будний
+          
             return weekdaysOnly ? shiftToNextWeekdayIfNeeded(day: startDay, calendar: calendar) : startDay
         }
 
@@ -391,7 +387,6 @@ public final class NotificationScheduler {
             }
         }
 
-        // Если вдруг попали на выходной (для days=0 кейса уже обработали) — подстрахуемся
         return weekdaysOnly ? shiftToNextWeekdayIfNeeded(day: d, calendar: calendar) : d
     }
 
