@@ -130,6 +130,7 @@ public final class NotificationScheduler {
     private let userDefaults: UserDefaults
 
     private let udLastAppliedVersionKey = "NIG_lastAppliedConfigVersion"
+    private let notificationPrefix = "NIG_v"
 
     public init(endpoint: String, userDefaults: UserDefaults = .standard) {
         print("🎯 NotificationScheduler init with endpoint: \(endpoint)")
@@ -202,6 +203,19 @@ public final class NotificationScheduler {
                 let lastAppliedVersion = self.userDefaults.string(forKey: self.udLastAppliedVersionKey)
                 print("💾 Last applied version: \(lastAppliedVersion ?? "none")")
                 
+               
+                let versionChanged = lastAppliedVersion != nil && lastAppliedVersion != config.config.version
+                
+                if versionChanged {
+                    print("🔄 Config version changed from \(lastAppliedVersion!) to \(config.config.version)")
+                    print("🗑️ Removing all old notifications...")
+                    self.removeAllManagedNotifications {
+                        print("✅ Old notifications removed, applying new config...")
+                        self.applyConfig(config, existingIds: Set())
+                    }
+                    return
+                }
+                
                 let shouldSkipBecausePersistent =
                     config.config.isPersistent && !force && (lastAppliedVersion == config.config.version) && !existingIds.isEmpty
 
@@ -215,6 +229,28 @@ public final class NotificationScheduler {
             }
         }
     }
+    
+    private func removeAllManagedNotifications(completion: @escaping () -> Void) {
+        center.getPendingNotificationRequests { requests in
+            let managedIds = requests
+                .map(\.identifier)
+                .filter { $0.hasPrefix(self.notificationPrefix) }
+            
+            if managedIds.isEmpty {
+                print("   No managed notifications to remove")
+                completion()
+                return
+            }
+            
+            print("   Removing \(managedIds.count) notifications:")
+            for id in managedIds {
+                print("   - \(id)")
+            }
+            
+            self.center.removePendingNotificationRequests(withIdentifiers: managedIds)
+            completion()
+        }
+    }
 
     private func applyConfig(_ config: NotificationConfig, existingIds: Set<String>) {
         print("✅ Applying config v\(config.config.version)")
@@ -224,7 +260,7 @@ public final class NotificationScheduler {
 
         var scheduledCount = 0
         var skippedCount = 0
-        var usedDates = Set<String>() 
+        var usedDates = Set<String>()
 
         for schedule in config.schedules {
             let identifier = makeIdentifier(configVersion: config.config.version, scheduleId: schedule.id)
@@ -244,7 +280,6 @@ public final class NotificationScheduler {
                 weekdaysOnly: config.config.weekdaysOnly
             )
             
-      
             let calendar = Calendar.current
             let dateKey = makeDateKey(date: targetDate, calendar: calendar)
             
@@ -291,7 +326,6 @@ public final class NotificationScheduler {
         var attempts = 0
         
         while attempts < 365 {
-            // следующий доступный день
             let nextDay = addAvailableDays(from: calendar.startOfDay(for: date), days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
             date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextDay) ?? nextDay
 
@@ -303,7 +337,6 @@ public final class NotificationScheduler {
             attempts += 1
         }
 
-        
         return date
     }
 
@@ -348,14 +381,8 @@ public final class NotificationScheduler {
         calendar.timeZone = .current
 
         let now = Date()
-
-    
         let baseDay = calendar.startOfDay(for: now)
-
-     
         var targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
-
-       
         var date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
 
         if date <= now {
@@ -366,10 +393,8 @@ public final class NotificationScheduler {
         return date
     }
 
-
     private func addAvailableDays(from startDay: Date, days: Int, calendar: Calendar, weekdaysOnly: Bool) -> Date {
         if days == 0 {
-          
             return weekdaysOnly ? shiftToNextWeekdayIfNeeded(day: startDay, calendar: calendar) : startDay
         }
 
@@ -391,7 +416,7 @@ public final class NotificationScheduler {
     }
 
     private func isWeekday(_ date: Date, calendar: Calendar) -> Bool {
-        let weekday = calendar.component(.weekday, from: date) // 1=Sun ... 7=Sat
+        let weekday = calendar.component(.weekday, from: date)
         return weekday != 1 && weekday != 7
     }
 
@@ -404,13 +429,11 @@ public final class NotificationScheduler {
         }
         return d
     }
-
     
     private func adjustToNextWeekday(date: Date, calendar: Calendar, fixedTime: (hour: Int, minute: Int)) -> Date {
         var adjustedDate = date
         var iterations = 0
         
-        // 1 = Sunday, 7 = Saturday
         while iterations < 7 {
             let weekday = calendar.component(.weekday, from: adjustedDate)
             if weekday == 1 || weekday == 7 {
