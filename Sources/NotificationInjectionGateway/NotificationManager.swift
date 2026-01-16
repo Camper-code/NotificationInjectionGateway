@@ -382,12 +382,15 @@ public final class NotificationScheduler {
 
         let now = Date()
         let baseDay = calendar.startOfDay(for: now)
-        var targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
+        
+ 
+        let targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
         var date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
 
-        if date <= now {
-            targetDay = addAvailableDays(from: targetDay, days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
-            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
+
+        if date < now {
+            let nextTargetDay = addAvailableDays(from: targetDay, days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
+            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextTargetDay) ?? nextTargetDay
         }
 
         return date
