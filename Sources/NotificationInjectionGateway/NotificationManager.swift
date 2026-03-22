@@ -450,11 +450,35 @@ public final class NotificationScheduler {
         
         return adjustedDate
     }
+
+    // MARK: - Public Query
+
+    public func getAllScheduledNotifications(completion: @escaping ([ScheduledNotificationInfo]) -> Void) {
+        center.getPendingNotificationRequests { requests in
+            let infos = requests
+                .filter { $0.identifier.hasPrefix(self.notificationPrefix) }
+                .map { ScheduledNotificationInfo(request: $0) }
+                .sorted {
+                    guard let l = $0.fireDate, let r = $1.fireDate else { return false }
+                    return l < r
+                }
+            completion(infos)
+        }
+    }
+
+    
+    @available(iOS 15.0, macOS 12.0, *)
+    public func getAllScheduledNotifications() async -> [ScheduledNotificationInfo] {
+        await withCheckedContinuation { continuation in
+            getAllScheduledNotifications { continuation.resume(returning: $0) }
+        }
+    }
 }
 
 // MARK: - SwiftUI View Extension (public)
 
 public extension View {
+    
     func notificationManager(url: String, force: Bool = false) -> some View {
         self.onAppear {
             print("🔔 NotificationManager modifier triggered")
@@ -462,6 +486,18 @@ public extension View {
             print("   Force: \(force)")
             let scheduler = NotificationScheduler(endpoint: url)
             scheduler.scheduleAppNotifications(force: force)
+        }
+    }
+
+    
+    func onScheduledNotifications(url: String, completion: @escaping ([ScheduledNotificationInfo]) -> Void) -> some View {
+        self.onAppear {
+            let scheduler = NotificationScheduler(endpoint: url)
+            scheduler.getAllScheduledNotifications { notifications in
+                DispatchQueue.main.async {
+                    completion(notifications)
+                }
+            }
         }
     }
 }
