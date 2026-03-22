@@ -122,6 +122,26 @@ public final class NotificationConfigManager {
     }
 }
 
+// MARK: - Scheduled Notification Info
+
+public struct ScheduledNotificationInfo {
+    public let identifier: String
+    public let title: String
+    public let body: String
+    public let fireDate: Date?
+
+    public init(request: UNNotificationRequest) {
+        self.identifier = request.identifier
+        self.title = request.content.title
+        self.body = request.content.body
+        if let trigger = request.trigger as? UNCalendarNotificationTrigger {
+            self.fireDate = trigger.nextTriggerDate()
+        } else {
+            self.fireDate = nil
+        }
+    }
+}
+
 // MARK: - Notification Scheduler
 
 public final class NotificationScheduler {
