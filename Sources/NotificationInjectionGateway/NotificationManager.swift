@@ -124,7 +124,7 @@ public final class NotificationConfigManager {
 
 // MARK: - Scheduled Notification Info
 
-public struct ScheduledNotificationInfo {
+public struct ScheduledNotificationInfo: Sendable {
     public let identifier: String
     public let title: String
     public let body: String
