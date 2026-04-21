@@ -158,6 +158,8 @@ public final class NotificationScheduler {
         self.userDefaults = userDefaults
     }
 
+    // MARK: - Public: Schedule only
+
     public func scheduleAppNotifications(force: Bool = false) {
         print("🚀 scheduleAppNotifications called, force: \(force)")
         requestPermissionIfNeeded { granted in
@@ -166,10 +168,28 @@ public final class NotificationScheduler {
                 print("⚠️ Notifications not granted")
                 return
             }
-
-            self.processScheduling(force: force)
+            self.processScheduling(force: force, completion: nil)
         }
     }
+
+    // MARK: - Public: Schedule then fetch (main combined method)
+
+    public func scheduleAndFetch(force: Bool = false, completion: @escaping ([ScheduledNotificationInfo]) -> Void) {
+        print("🚀 scheduleAndFetch called, force: \(force)")
+        requestPermissionIfNeeded { granted in
+            print("🔐 Permission result: \(granted)")
+            guard granted else {
+                print("⚠️ Notifications not granted")
+                completion([])
+                return
+            }
+            self.processScheduling(force: force) {
+                self.getAllScheduledNotifications(completion: completion)
+            }
+        }
+    }
+
+    // MARK: - Permission
 
     private func requestPermissionIfNeeded(completion: @escaping (Bool) -> Void) {
         print("🔍 Checking notification permission...")
@@ -200,7 +220,9 @@ public final class NotificationScheduler {
         }
     }
 
-    private func processScheduling(force: Bool) {
+    // MARK: - Scheduling Logic
+
+    private func processScheduling(force: Bool, completion: (() -> Void)?) {
         print("⚙️ Processing scheduling, force: \(force)")
         center.getPendingNotificationRequests { existingRequests in
             let existingIds = Set(existingRequests.map(\.identifier))
@@ -213,6 +235,7 @@ public final class NotificationScheduler {
             self.configManager.getNotificationConfig { config in
                 guard let config = config else {
                     print("❌ Config is nil")
+                    completion?()
                     return
                 }
 
@@ -222,57 +245,60 @@ public final class NotificationScheduler {
 
                 let lastAppliedVersion = self.userDefaults.string(forKey: self.udLastAppliedVersionKey)
                 print("💾 Last applied version: \(lastAppliedVersion ?? "none")")
-                
-               
+
                 let versionChanged = lastAppliedVersion != nil && lastAppliedVersion != config.config.version
-                
+
                 if versionChanged {
                     print("🔄 Config version changed from \(lastAppliedVersion!) to \(config.config.version)")
                     print("🗑️ Removing all old notifications...")
                     self.removeAllManagedNotifications {
                         print("✅ Old notifications removed, applying new config...")
-                        self.applyConfig(config, existingIds: Set())
+                        self.applyConfig(config, existingIds: Set(), completion: completion)
                     }
                     return
                 }
-                
+
                 let shouldSkipBecausePersistent =
-                    config.config.isPersistent && !force && (lastAppliedVersion == config.config.version) && !existingIds.isEmpty
+                    config.config.isPersistent &&
+                    !force &&
+                    (lastAppliedVersion == config.config.version) &&
+                    !existingIds.isEmpty
 
                 if shouldSkipBecausePersistent {
                     print("✅ Persistent config already applied (version \(config.config.version)). Skipping.")
+                    completion?()
                     return
                 }
 
                 print("🔄 Applying config...")
-                self.applyConfig(config, existingIds: existingIds)
+                self.applyConfig(config, existingIds: existingIds, completion: completion)
             }
         }
     }
-    
+
     private func removeAllManagedNotifications(completion: @escaping () -> Void) {
         center.getPendingNotificationRequests { requests in
             let managedIds = requests
                 .map(\.identifier)
                 .filter { $0.hasPrefix(self.notificationPrefix) }
-            
+
             if managedIds.isEmpty {
                 print("   No managed notifications to remove")
                 completion()
                 return
             }
-            
+
             print("   Removing \(managedIds.count) notifications:")
             for id in managedIds {
                 print("   - \(id)")
             }
-            
+
             self.center.removePendingNotificationRequests(withIdentifiers: managedIds)
             completion()
         }
     }
 
-    private func applyConfig(_ config: NotificationConfig, existingIds: Set<String>) {
+    private func applyConfig(_ config: NotificationConfig, existingIds: Set<String>, completion: (() -> Void)?) {
         print("✅ Applying config v\(config.config.version)")
         let fixed = parseFixedTime(config.config.fixedTime)
         print("⏰ Fixed time: \(fixed.hour):\(fixed.minute)")
@@ -281,6 +307,9 @@ public final class NotificationScheduler {
         var scheduledCount = 0
         var skippedCount = 0
         var usedDates = Set<String>()
+
+        // Collect requests to schedule
+        var requestsToSchedule: [(identifier: String, title: String, subtitle: String, fireDate: Date)] = []
 
         for schedule in config.schedules {
             let identifier = makeIdentifier(configVersion: config.config.version, scheduleId: schedule.id)
@@ -299,10 +328,10 @@ public final class NotificationScheduler {
                 fixedTime: fixed,
                 weekdaysOnly: config.config.weekdaysOnly
             )
-            
+
             let calendar = Calendar.current
             let dateKey = makeDateKey(date: targetDate, calendar: calendar)
-            
+
             if usedDates.contains(dateKey) {
                 print("⚠️ Date conflict detected for \(dateKey), moving to next available day")
                 targetDate = findNextAvailableDate(
@@ -313,54 +342,53 @@ public final class NotificationScheduler {
                     weekdaysOnly: config.config.weekdaysOnly
                 )
             }
-            
-            usedDates.insert(makeDateKey(date: targetDate, calendar: calendar))
 
-            scheduleNotification(
-                identifier: identifier,
-                title: title,
-                subtitle: subtitle,
-                fireDate: targetDate
-            )
+            usedDates.insert(makeDateKey(date: targetDate, calendar: calendar))
+            requestsToSchedule.append((identifier, title, subtitle, targetDate))
             scheduledCount += 1
         }
 
-        print("📊 Scheduling complete: \(scheduledCount) scheduled, \(skippedCount) skipped")
-        self.userDefaults.setValue(config.config.version, forKey: self.udLastAppliedVersionKey)
-        print("💾 Saved version to UserDefaults: \(config.config.version)")
-    }
-    
-    private func makeDateKey(date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return "\(components.year!)-\(components.month!)-\(components.day!)"
-    }
-    
-    private func findNextAvailableDate(
-        startDate: Date,
-        usedDates: inout Set<String>,
-        calendar: Calendar,
-        fixedTime: (hour: Int, minute: Int),
-        weekdaysOnly: Bool
-    ) -> Date {
-        var date = startDate
-        var attempts = 0
-        
-        while attempts < 365 {
-            let nextDay = addAvailableDays(from: calendar.startOfDay(for: date), days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
-            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextDay) ?? nextDay
+        print("📊 Scheduling complete: \(scheduledCount) to schedule, \(skippedCount) skipped")
 
-            let dateKey = makeDateKey(date: date, calendar: calendar)
-            if !usedDates.contains(dateKey) {
-                return date
-            }
-
-            attempts += 1
+        guard !requestsToSchedule.isEmpty else {
+            self.userDefaults.setValue(config.config.version, forKey: self.udLastAppliedVersionKey)
+            print("💾 Saved version to UserDefaults: \(config.config.version)")
+            completion?()
+            return
         }
 
-        return date
+        // Use DispatchGroup to wait for all center.add() calls to finish
+        let group = DispatchGroup()
+
+        for item in requestsToSchedule {
+            group.enter()
+            scheduleNotification(
+                identifier: item.identifier,
+                title: item.title,
+                subtitle: item.subtitle,
+                fireDate: item.fireDate
+            ) {
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            self.userDefaults.setValue(config.config.version, forKey: self.udLastAppliedVersionKey)
+            print("💾 Saved version to UserDefaults: \(config.config.version)")
+            print("✅ All notifications scheduled, calling completion")
+            completion?()
+        }
     }
 
-    private func scheduleNotification(identifier: String, title: String, subtitle: String, fireDate: Date) {
+    // MARK: - Schedule single notification with completion
+
+    private func scheduleNotification(
+        identifier: String,
+        title: String,
+        subtitle: String,
+        fireDate: Date,
+        completion: @escaping () -> Void
+    ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = subtitle
@@ -382,8 +410,11 @@ public final class NotificationScheduler {
                 print("   Title: '\(title)'")
                 print("   Fire date: \(formatter.string(from: fireDate))")
             }
+            completion()
         }
     }
+
+    // MARK: - Helpers
 
     private func makeIdentifier(configVersion: String, scheduleId: Int) -> String {
         "NIG_v\(configVersion)_id\(scheduleId)"
@@ -396,21 +427,49 @@ public final class NotificationScheduler {
         return (hour, minute)
     }
 
+    private func makeDateKey(date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return "\(components.year!)-\(components.month!)-\(components.day!)"
+    }
+
     private func computeFireDate(dayOffset: Int, fixedTime: (hour: Int, minute: Int), weekdaysOnly: Bool) -> Date {
         var calendar = Calendar.current
         calendar.timeZone = .current
 
         let now = Date()
         let baseDay = calendar.startOfDay(for: now)
-        
- 
+
         let targetDay = addAvailableDays(from: baseDay, days: max(0, dayOffset), calendar: calendar, weekdaysOnly: weekdaysOnly)
         var date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: targetDay) ?? targetDay
-
 
         if date < now {
             let nextTargetDay = addAvailableDays(from: targetDay, days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
             date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextTargetDay) ?? nextTargetDay
+        }
+
+        return date
+    }
+
+    private func findNextAvailableDate(
+        startDate: Date,
+        usedDates: inout Set<String>,
+        calendar: Calendar,
+        fixedTime: (hour: Int, minute: Int),
+        weekdaysOnly: Bool
+    ) -> Date {
+        var date = startDate
+        var attempts = 0
+
+        while attempts < 365 {
+            let nextDay = addAvailableDays(from: calendar.startOfDay(for: date), days: 1, calendar: calendar, weekdaysOnly: weekdaysOnly)
+            date = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: nextDay) ?? nextDay
+
+            let dateKey = makeDateKey(date: date, calendar: calendar)
+            if !usedDates.contains(dateKey) {
+                return date
+            }
+
+            attempts += 1
         }
 
         return date
@@ -452,24 +511,6 @@ public final class NotificationScheduler {
         }
         return d
     }
-    
-    private func adjustToNextWeekday(date: Date, calendar: Calendar, fixedTime: (hour: Int, minute: Int)) -> Date {
-        var adjustedDate = date
-        var iterations = 0
-        
-        while iterations < 7 {
-            let weekday = calendar.component(.weekday, from: adjustedDate)
-            if weekday == 1 || weekday == 7 {
-                adjustedDate = calendar.date(byAdding: .day, value: 1, to: adjustedDate) ?? adjustedDate
-                adjustedDate = calendar.date(bySettingHour: fixedTime.hour, minute: fixedTime.minute, second: 0, of: adjustedDate) ?? adjustedDate
-                iterations += 1
-                continue
-            }
-            break
-        }
-        
-        return adjustedDate
-    }
 
     // MARK: - Public Query
 
@@ -486,22 +527,29 @@ public final class NotificationScheduler {
         }
     }
 
-    
     @available(iOS 15.0, macOS 12.0, *)
     public func getAllScheduledNotifications() async -> [ScheduledNotificationInfo] {
         await withCheckedContinuation { continuation in
             getAllScheduledNotifications { continuation.resume(returning: $0) }
         }
     }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    public func scheduleAndFetch(force: Bool = false) async -> [ScheduledNotificationInfo] {
+        await withCheckedContinuation { continuation in
+            scheduleAndFetch(force: force) { continuation.resume(returning: $0) }
+        }
+    }
 }
 
-// MARK: - SwiftUI View Extension (public)
+// MARK: - SwiftUI View Extension
 
 public extension View {
-    
+
+    /// Только планирует уведомления, ничего не возвращает
     func notificationManager(url: String, force: Bool = false) -> some View {
         self.onAppear {
-            print("🔔 NotificationManager modifier triggered")
+            print("🔔 notificationManager modifier triggered")
             print("   URL: \(url)")
             print("   Force: \(force)")
             let scheduler = NotificationScheduler(endpoint: url)
@@ -509,11 +557,18 @@ public extension View {
         }
     }
 
-    
-    func onScheduledNotifications(url: String, completion: @escaping ([ScheduledNotificationInfo]) -> Void) -> some View {
+    /// Планирует уведомления, затем возвращает список запланированных
+    func onScheduledNotifications(
+        url: String,
+        force: Bool = false,
+        completion: @escaping ([ScheduledNotificationInfo]) -> Void
+    ) -> some View {
         self.onAppear {
+            print("🔔 onScheduledNotifications modifier triggered")
+            print("   URL: \(url)")
+            print("   Force: \(force)")
             let scheduler = NotificationScheduler(endpoint: url)
-            scheduler.getAllScheduledNotifications { notifications in
+            scheduler.scheduleAndFetch(force: force) { notifications in
                 DispatchQueue.main.async {
                     completion(notifications)
                 }
